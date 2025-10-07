@@ -9,6 +9,9 @@
     "test-create": "node src/create-single-market.js",
     "test-simple": "node src/create-simple-market.js",
     "scheduler": "node src/scheduler-agent.js",
+    "trading": "node src/trading-interface.js",
+    "cli": "node src/trading-cli.js",
+    "test-trading": "node test-trading.js",
     "dev": "node --watch src/orchestrator.js"
   },
   "dependencies": {

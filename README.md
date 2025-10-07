@@ -66,6 +66,47 @@ cp .env.example .env
 
 ## Running the Agents
 
+### Prerequisites - Start Solana Validator
+
+**IMPORTANT**: Always start the Solana test validator before running agents or trading interface.
+
+```bash
+# Option 1: Run in foreground (use Ctrl+C to stop cleanly)
+solana-test-validator
+
+# Option 2: Run in background (recommended)
+solana-test-validator > validator.log 2>&1 &
+
+# To check if validator is running
+ps aux | grep solana-test-validator
+
+# To view logs (if running in background)
+tail -f validator.log
+
+# To stop validator (if running in background)
+pkill solana-test-validator
+```
+
+**Common Validator Issues:**
+
+If you get "Unable to lock test-ledger directory":
+```bash
+# 1. Check for suspended processes
+fg  # Brings suspended process to foreground
+# Then press Ctrl+C to kill it
+
+# 2. Or kill all validator processes
+pkill -9 solana-test-validator
+
+# 3. Clean up the lock
+rm -rf test-ledger
+
+# 4. Start fresh
+solana-test-validator
+```
+
+**Never use Ctrl+Z** with the validator - it suspends the process but keeps the lock. Always use **Ctrl+C** to stop cleanly.
+
 ### Start the Dashboard
 ```bash
 cd agents
