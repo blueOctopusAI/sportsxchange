@@ -369,7 +369,7 @@ pub struct LiquidityPool {
     pub home_reserve: u64,      // 8
     pub away_reserve: u64,      // 8
     pub constant_k: u64,        // 8
-    pub bump: u8,               // 1
+    pub bump: u8,               // 1 
 }
 
 // ============================================================================
