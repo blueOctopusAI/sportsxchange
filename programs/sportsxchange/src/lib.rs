@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, Token};
 
 declare_id!("7hy1AuAi6X6cgQHot3GJyuzAhpaSaqC75rNPudpj39HN");
 
@@ -6,7 +7,6 @@ declare_id!("7hy1AuAi6X6cgQHot3GJyuzAhpaSaqC75rNPudpj39HN");
 pub mod sportsxchange {
     use super::*;
 
-    // This is our first instruction. It creates a new Market account.
     pub fn create_market(
         ctx: Context<CreateMarket>,
         game_id: String,
@@ -14,39 +14,59 @@ pub mod sportsxchange {
         away_team: String,
     ) -> Result<()> {
         let market = &mut ctx.accounts.market;
-        market.authority = *ctx.accounts.authority.key;
+        market.authority = ctx.accounts.authority.key();
         market.game_id = game_id;
         market.home_team = home_team;
         market.away_team = away_team;
+        market.home_mint = ctx.accounts.home_mint.key();
+        market.away_mint = ctx.accounts.away_mint.key();
         Ok(())
     }
 }
 
-// This defines the data structure for our Market account.
-// This is what gets stored on the blockchain.
 #[account]
 pub struct Market {
     pub authority: Pubkey,
     pub game_id: String,
     pub home_team: String,
     pub away_team: String,
+    pub home_mint: Pubkey,
+    pub away_mint: Pubkey,
 }
 
-// This defines all the accounts our `create_market` instruction needs.
 #[derive(Accounts)]
 pub struct CreateMarket<'info> {
-    // This is the new Market account we are creating.
-    // `init` means it will be created and initialized.
-    // `payer = authority` means the `authority` will pay for its creation.
-    // `space = ...` reserves enough space on the blockchain for our Market data.
-    #[account(init, payer = authority, space = 8 + 32 + 32 + 16 + 16)]
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + 32 + (4 + 50) + (4 + 20) + (4 + 20) + 32 + 32
+    )]
     pub market: Account<'info, Market>,
 
-    // The authority is the user creating the market.
-    // `mut` means their account balance will be mutated (debited for rent).
+    /// CHECK: This is a keypair passed in for the home mint
+    #[account(
+        init,
+        payer = authority,
+        mint::decimals = 6,
+        mint::authority = authority,
+        mint::token_program = token_program
+    )]
+    pub home_mint: Account<'info, Mint>,
+
+    /// CHECK: This is a keypair passed in for the away mint
+    #[account(
+        init,
+        payer = authority,
+        mint::decimals = 6,
+        mint::authority = authority,
+        mint::token_program = token_program
+    )]
+    pub away_mint: Account<'info, Mint>,
+
     #[account(mut)]
     pub authority: Signer<'info>,
-    
-    // The System Program is required by Solana to create new accounts.
+
+    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
 }
