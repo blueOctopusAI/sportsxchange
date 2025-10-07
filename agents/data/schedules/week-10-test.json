@@ -1,0 +1,46 @@
+{
+  "week": 10,
+  "season": 2024,
+  "games": [
+    {
+      "gameId": "2024-WEEK10-KC-BAL",
+      "homeTeam": "KC",
+      "awayTeam": "BAL",
+      "kickoff": "2024-11-07T20:20:00Z",
+      "venue": "GEHA Field at Arrowhead Stadium",
+      "marketPda": "HVoN6gYHdxeixkyBBtTNchu4x6MwsL9UNoY1fAiZrsTA",
+      "poolPda": "C8S797BgJ6JAHdRFdt4nWHw9aHBhdM3xsSjqU15CXJrR",
+      "status": "market_created"
+    },
+    {
+      "gameId": "2024-WEEK10-DET-HOU",
+      "homeTeam": "DET",
+      "awayTeam": "HOU",
+      "kickoff": "2024-11-10T20:20:00Z",
+      "venue": "NRG Stadium",
+      "marketPda": "AV5tb52EJgVh7eLEcDcmu4GYdXuAJBpBcyyNEbYHw9Zm",
+      "poolPda": "6vjxTyaL38nkkCHFyLypo8b3M155Wtw5CLFStvpq4Aq3",
+      "status": "market_created"
+    },
+    {
+      "gameId": "2024-WEEK10-SF-DAL",
+      "homeTeam": "SF",
+      "awayTeam": "DAL",
+      "kickoff": "2024-11-10T16:25:00Z",
+      "venue": "Levi's Stadium",
+      "marketPda": "9tt9xoeZ4iyGH1hX7ntVamvE1ktD614T55bHnYqw3Rhw",
+      "poolPda": "AaV8ebpbn4TfDSeQPhRSsFaj9wKASgUNYYGbHrA638f",
+      "status": "market_created"
+    },
+    {
+      "gameId": "2024-WEEK10-GB-CHI",
+      "homeTeam": "GB",
+      "awayTeam": "CHI",
+      "kickoff": "2024-11-10T13:00:00Z",
+      "venue": "Lambeau Field",
+      "marketPda": "8JHVdcX52BiRgCx3YAZPGAt5LDyBXGqC8523413XYb7M",
+      "poolPda": "39sNocGLXt4p6JzT2yChavmj6cJ6FbgHF4WgdfFfQrMw",
+      "status": "market_created"
+    }
+  ]
+}
