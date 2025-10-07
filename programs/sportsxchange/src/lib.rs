@@ -260,6 +260,56 @@ pub mod sportsxchange {
 
         Ok(())
     }
+
+    pub fn fund_user(
+        ctx: Context<FundUser>,
+        home_amount: u64,
+        away_amount: u64,
+    ) -> Result<()> {
+        let market = &ctx.accounts.market;
+        
+        let game_id = market.game_id.as_bytes();
+        let seeds = &[
+            b"market",
+            game_id,
+            &[market.bump],
+        ];
+        let signer = &[&seeds[..]];
+
+        // Mint HOME tokens to user
+        if home_amount > 0 {
+            token::mint_to(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    MintTo {
+                        mint: ctx.accounts.home_mint.to_account_info(),
+                        to: ctx.accounts.user_home_account.to_account_info(),
+                        authority: ctx.accounts.market.to_account_info(),
+                    },
+                    signer,
+                ),
+                home_amount,
+            )?;
+        }
+
+        // Mint AWAY tokens to user
+        if away_amount > 0 {
+            token::mint_to(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    MintTo {
+                        mint: ctx.accounts.away_mint.to_account_info(),
+                        to: ctx.accounts.user_away_account.to_account_info(),
+                        authority: ctx.accounts.market.to_account_info(),
+                    },
+                    signer,
+                ),
+                away_amount,
+            )?;
+        }
+
+        Ok(())
+    }
 }
 
 // Helper function for AMM math
@@ -460,6 +510,44 @@ pub struct ResolveMarket<'info> {
     pub market: Account<'info, Market>,
 
     pub authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct FundUser<'info> {
+    pub market: Account<'info, Market>,
+
+    #[account(
+        mut,
+        address = market.home_mint
+    )]
+    pub home_mint: Account<'info, Mint>,
+
+    #[account(
+        mut,
+        address = market.away_mint
+    )]
+    pub away_mint: Account<'info, Mint>,
+
+    #[account(
+        mut,
+        associated_token::mint = home_mint,
+        associated_token::authority = user,
+        associated_token::token_program = token_program
+    )]
+    pub user_home_account: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        associated_token::mint = away_mint,
+        associated_token::authority = user,
+        associated_token::token_program = token_program
+    )]
+    pub user_away_account: Account<'info, TokenAccount>,
+
+    /// CHECK: Just used for ATA derivation
+    pub user: AccountInfo<'info>,
+
+    pub token_program: Program<'info, Token>,
 }
 
 // ============================================================================

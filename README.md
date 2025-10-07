@@ -15,13 +15,15 @@ Each NFL game spawns a market with two tokens: **Home** and **Away**. These toke
 - **Head-to-Head AMM** - Constant product formula (x × y = k)
 - **Liquidity Pools** - Token vaults with automated pricing
 - **Resolution Engine** - Declares winners and settles markets
+- **User Funding** - Token distribution for testing/demo
 
 ### Key Features
 - ✅ PDA-based market accounts (deterministic addresses)
 - ✅ Separate SPL token mints for each side
+- ✅ Bidirectional swaps (HOME ↔ AWAY)
 - ✅ Slippage protection on swaps
 - ✅ Event emissions for price tracking
-- ✅ Market lifecycle management (create → trade → resolve)
+- ✅ Market lifecycle management (create → fund → trade → resolve)
 
 ## 🚀 Quick Start
 
@@ -98,7 +100,23 @@ pub fn initialize_pool(
 - Home Vault - ATA for home tokens
 - Away Vault - ATA for away tokens
 
-### 3. Swap Home for Away
+### 3. Fund User
+Mints tokens to a user's account for testing/demo purposes.
+
+```rust
+pub fn fund_user(
+    ctx: Context<FundUser>,
+    home_amount: u64,
+    away_amount: u64,
+) -> Result<()>
+```
+
+**Accounts:**
+- Market - Parent market (holds mint authority)
+- User Home Account - User's HOME token ATA
+- User Away Account - User's AWAY token ATA
+
+### 4. Swap Home for Away
 Trade home tokens for away tokens.
 
 ```rust
@@ -114,7 +132,7 @@ pub fn swap_home_for_away(
 amount_out = (reserve_away × amount_in) / (reserve_home + amount_in)
 ```
 
-### 4. Swap Away for Home
+### 5. Swap Away for Home
 Trade away tokens for home tokens.
 
 ```rust
@@ -125,7 +143,7 @@ pub fn swap_away_for_home(
 ) -> Result<()>
 ```
 
-### 5. Resolve Market
+### 6. Resolve Market
 Declares the winning team and closes the market.
 
 ```rust
@@ -146,22 +164,41 @@ pub fn resolve_market(
 anchor test
 ```
 
-**Coverage:**
+### Market Lifecycle Tests (5 tests)
 - ✅ Market creation with PDA derivation
 - ✅ Pool initialization with 1000/1000 liquidity
 - ✅ Price calculation verification (1:1 ratio)
 - ✅ Market resolution flow
 - ✅ Double-resolution prevention
 
+### Trading Tests (4 tests)
+- ✅ User account setup with token distribution
+- ✅ HOME → AWAY swap with price impact
+- ✅ AWAY → HOME swap (reverse direction)
+- ✅ Multiple consecutive swaps showing progressive slippage
+
+**Total: 9 passing tests**
+
 **Example Output:**
 ```
-✓ Creates a market with PDA (463ms)
-✓ Initializes liquidity pool (467ms)
+================================================================================
+🏈 SportsXchange AMM Test Suite
+================================================================================
+✓ Creates a market with PDA (542ms)
+✓ Initializes liquidity pool (471ms)
 ✓ Calculates price correctly (50/50 split)
-✓ Resolves market with winner (473ms)
+✓ Resolves market with winner (465ms)
 ✓ Cannot resolve inactive market
 
-5 passing (1s)
+================================================================================
+💱 SportsXchange Trading Tests
+================================================================================
+✓ Sets up users with token accounts (4580ms)
+✓ User A swaps HOME for AWAY (buys AWAY) (597ms)
+✓ User B swaps AWAY for HOME (buys HOME) (524ms)
+✓ Multiple consecutive swaps show increasing slippage (1402ms)
+
+9 passing (10s)
 ```
 
 ## 📐 Account Structures
@@ -238,7 +275,23 @@ await program.methods
   })
   .rpc();
 
-// 3. Swap tokens
+// 3. Fund user with tokens
+await program.methods
+  .fundUser(
+    new anchor.BN(100_000_000),  // 100 HOME
+    new anchor.BN(100_000_000)   // 100 AWAY
+  )
+  .accounts({
+    market: marketPda,
+    homeMint: homeMint.publicKey,
+    awayMint: awayMint.publicKey,
+    userHomeAccount: userHomeAta,
+    userAwayAccount: userAwayAta,
+    user: user.publicKey,
+  })
+  .rpc();
+
+// 4. Swap tokens
 await program.methods
   .swapHomeForAway(
     new anchor.BN(10_000_000),  // 10 HOME tokens
@@ -247,11 +300,16 @@ await program.methods
   .accounts({
     market: marketPda,
     pool: poolPda,
-    // ... user token accounts
+    homeVault,
+    awayVault,
+    userHomeAccount: userHomeAta,
+    userAwayAccount: userAwayAta,
+    user: user.publicKey,
   })
+  .signers([user])
   .rpc();
 
-// 4. Resolve market
+// 5. Resolve market
 await program.methods
   .resolveMarket({ home: {} })
   .accounts({
@@ -264,34 +322,48 @@ await program.methods
 
 ### Initial Pool Setup
 - **Liquidity:** 1000 HOME + 1000 AWAY
-- **Constant K:** 1,000,000 (1000 × 1000)
+- **Constant K:** 1,000,000,000,000,000,000 (10^18)
 - **Initial Price:** 1:1 ratio
 
 ### Price Impact Example
 Starting: 1000 HOME / 1000 AWAY
 
-User buys 10 HOME tokens:
-- **Amount In:** 10 AWAY
-- **Amount Out:** ~9.9 HOME
-- **New Ratio:** 990.1 HOME / 1010 AWAY
-- **New Price:** 1 HOME = 1.02 AWAY (+2%)
+User swaps 10 HOME → AWAY:
+- **Amount In:** 10 HOME
+- **Amount Out:** 9.901 AWAY
+- **New Reserves:** 1010 HOME / 990.099 AWAY
+- **New Price:** 1 HOME = 0.9803 AWAY (-1.97% impact)
+- **K Maintained:** 1,000,000,000,100,000,000 (~0.00001% rounding)
+
+### Consecutive Swaps Demonstrate Slippage
+Three 5-token swaps in succession:
+- **Swap 1:** Price = 0.9903 AWAY per HOME
+- **Swap 2:** Price = 0.9805 AWAY per HOME
+- **Swap 3:** Price = 0.9709 AWAY per HOME
+- **Total Movement:** -1.96%
+
+Each trade gets progressively worse price, proving the head-to-head dynamic works.
 
 ### Transaction Costs (Localnet)
 - Market creation: ~0.002 SOL
 - Pool initialization: ~0.003 SOL
 - Swap: ~0.0001 SOL
+- User funding: ~0.00005 SOL
 
 ## 🔮 Roadmap
 
 See [ROADMAP.md](./ROADMAP.md) for the full product vision and build phases.
 
-**Current Status:** ✅ Phase 1 Complete
-- Market creation
-- AMM pools
-- Swap engine
-- Resolution system
+**Current Status:** ✅ Phase 1A Complete (Trading Loop)
+- ✅ Market creation
+- ✅ AMM pools
+- ✅ Swap engine (bidirectional)
+- ✅ Resolution system
+- ✅ User token distribution
+- ✅ Price impact validation
+- ✅ Slippage protection
 
-**Next Phase:** Agent automation + React Native UI
+**Next Phase:** Price impact analysis + edge case testing (Phase 1B)
 
 ## 🛠️ Development
 
@@ -303,9 +375,12 @@ sportsxchange/
 │       └── src/
 │           └── lib.rs          # Anchor program
 ├── tests/
-│   └── sportsxchange.ts        # Test suite
+│   ├── sportsxchange.ts        # Market lifecycle tests
+│   └── trading.test.ts         # Trading & swap tests
 ├── app/                        # React Native (future)
 ├── Anchor.toml                 # Anchor config
+├── README.md                   # This file
+├── ROADMAP.md                  # Product roadmap
 └── package.json
 ```
 
