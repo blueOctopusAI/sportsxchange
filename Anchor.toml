@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-sportsxchange = "7hy1AuAi6X6cgQHot3GJyuzAhpaSaqC75rNPudpj39HN"
+sportsxchange = "7ahGrFV9AttAdvq3mdfofVLgTSnqzwmZVfCHY6xy1cUH"
 
 [registry]
 url = "https://api.apr.dev"

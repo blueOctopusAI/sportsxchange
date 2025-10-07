@@ -344,6 +344,16 @@ Three 5-token swaps in succession:
 
 Each trade gets progressively worse price, proving the head-to-head dynamic works.
 
+### Test Coverage (18 tests total)
+- **Market Lifecycle:** 5 tests
+- **Trading:** 4 tests
+- **Edge Cases:** 9 tests
+  - Slippage protection (2)
+  - Zero amounts (2)
+  - Extreme trades (2)
+  - Rapid swaps (1)
+  - Post-resolution (2)
+
 ### Transaction Costs (Localnet)
 - Market creation: ~0.002 SOL
 - Pool initialization: ~0.003 SOL
@@ -354,16 +364,16 @@ Each trade gets progressively worse price, proving the head-to-head dynamic work
 
 See [ROADMAP.md](./ROADMAP.md) for the full product vision and build phases.
 
-**Current Status:** ✅ Phase 1A Complete (Trading Loop)
-- ✅ Market creation
-- ✅ AMM pools
-- ✅ Swap engine (bidirectional)
+**Current Status:** ✅ Phase 1A & 1B Complete
+- ✅ Market creation & AMM pools
+- ✅ Bidirectional swap engine
 - ✅ Resolution system
 - ✅ User token distribution
 - ✅ Price impact validation
 - ✅ Slippage protection
+- ✅ Edge case handling (18 tests passing)
 
-**Next Phase:** Price impact analysis + edge case testing (Phase 1B)
+**Next Phase:** Automation & Agents (Phase 2)
 
 ## 🛠️ Development
 

@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, MintTo, Transfer};
 
-declare_id!("7hy1AuAi6X6cgQHot3GJyuzAhpaSaqC75rNPudpj39HN");
+declare_id!("7ahGrFV9AttAdvq3mdfofVLgTSnqzwmZVfCHY6xy1cUH");
 
 #[program]
 pub mod sportsxchange {
@@ -92,7 +92,12 @@ pub mod sportsxchange {
         amount_in: u64,
         minimum_amount_out: u64,
     ) -> Result<()> {
+        let market = &ctx.accounts.market;
         let pool = &ctx.accounts.pool;
+
+        // Validations
+        require!(amount_in > 0, ErrorCode::InvalidAmount);
+        require!(market.is_active, ErrorCode::MarketNotActive);
 
         // Calculate amount out
         let amount_out = calculate_amount_out(
@@ -169,7 +174,12 @@ pub mod sportsxchange {
         amount_in: u64,
         minimum_amount_out: u64,
     ) -> Result<()> {
+        let market = &ctx.accounts.market;
         let pool = &ctx.accounts.pool;
+
+        // Validations
+        require!(amount_in > 0, ErrorCode::InvalidAmount);
+        require!(market.is_active, ErrorCode::MarketNotActive);
 
         let amount_out = calculate_amount_out(
             amount_in,
@@ -592,4 +602,6 @@ pub enum ErrorCode {
     MarketNotActive,
     #[msg("Market already resolved")]
     MarketAlreadyResolved,
+    #[msg("Invalid amount: must be greater than zero")]
+    InvalidAmount,
 }
