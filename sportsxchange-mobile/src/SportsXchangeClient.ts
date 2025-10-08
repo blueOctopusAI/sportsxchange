@@ -1,112 +1,195 @@
-import { Connection, PublicKey, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction, SystemProgram, Keypair } from '@solana/web3.js';
 import { 
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
   createAssociatedTokenAccountInstruction,
+  getAccount,
 } from '@solana/spl-token';
 import BN from 'bn.js';
+
+// Bonding Curve Market Interface
+interface BondingCurveMarket {
+  marketPda: string;
+  gameId: string;
+  teamA: string;
+  teamB: string;
+  teamAMint: string;
+  teamBMint: string;
+  usdcVault: string;
+  basePrice: number;
+  slope: number;
+  teamASupply: number;
+  teamBSupply: number;
+  poolValue: number;
+}
 
 export class SportsXchangeClient {
   private connection: Connection;
   private programId: PublicKey;
+  private usdcMint: PublicKey;
 
-  constructor(rpcUrl: string, programId: string) {
+  constructor(
+    rpcUrl: string = 'http://127.0.0.1:8899',
+    programId: string = '7ahGrFV9AttAdvq3mdfofVLgTSnqzwmZVfCHY6xy1cUH',
+    usdcMint?: string
+  ) {
     this.connection = new Connection(rpcUrl, 'confirmed');
     this.programId = new PublicKey(programId);
+    // Use provided USDC mint or a default test one
+    this.usdcMint = usdcMint ? new PublicKey(usdcMint) : PublicKey.default;
   }
 
-  // Market data (hardcoded for now, should fetch from chain)
-  private marketData = {
-    'HVoN6gYHdxeixkyBBtTNchu4x6MwsL9UNoY1fAiZrsTA': {
-      homeMint: '8Ua1LhsR4FjGciU47EQL7pegS3mXvJdPdyHMfzHqYCSs',
-      awayMint: '4FjibE9dRbcpFL366dubv5pKWE8xE6kof5JX8s1uJKVx',
-      homeTeam: 'KC',
-      awayTeam: 'BAL',
-    },
-    'AV5tb52EJgVh7eLEcDcmu4GYdXuAJBpBcyyNEbYHw9Zm': {
-      homeMint: '2p6LMM4vnRVAsr1aN4mYPXvE3Y2HLL9Rf5Sw8cv8oZB9',
-      awayMint: 'DjmUXQhqLbqvnqsNY8aR8gQLUjCV1DrHQeFcU6aG3f58',
-      homeTeam: 'DET',
-      awayTeam: 'HOU',
-    },
-  };
+  /**
+   * Set the USDC mint address (for test USDC)
+   */
+  setUsdcMint(mintAddress: string) {
+    this.usdcMint = new PublicKey(mintAddress);
+  }
 
-  async getPoolInfo(marketPda: string) {
-    const market = new PublicKey(marketPda);
-    const [poolPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('pool'), market.toBuffer()],
-      this.programId
-    );
-
+  /**
+   * Fetch market data from blockchain
+   */
+  async getMarketData(marketPda: string): Promise<BondingCurveMarket | null> {
     try {
-      const accountInfo = await this.connection.getAccountInfo(poolPda);
+      const market = new PublicKey(marketPda);
+      const accountInfo = await this.connection.getAccountInfo(market);
       
-      if (accountInfo && accountInfo.data) {
-        // Parse pool data
-        const dataBuffer = accountInfo.data;
-        let offset = 8 + 32 + 32 + 32; // Skip discriminator, market, vaults
-        
-        const homeReserve = dataBuffer.readBigUInt64LE(offset);
-        offset += 8;
-        const awayReserve = dataBuffer.readBigUInt64LE(offset);
-        
-        const homeReserveNum = Number(homeReserve) / 1_000_000;
-        const awayReserveNum = Number(awayReserve) / 1_000_000;
-        
-        // Calculate probabilities
-        const totalReserve = homeReserveNum + awayReserveNum;
-        const homeProb = ((awayReserveNum / totalReserve) * 100).toFixed(1);
-        const awayProb = ((homeReserveNum / totalReserve) * 100).toFixed(1);
-        
-        return {
-          homeReserve: homeReserveNum,
-          awayReserve: awayReserveNum,
-          homeProb: `${homeProb}%`,
-          awayProb: `${awayProb}%`,
-        };
+      if (!accountInfo || !accountInfo.data) {
+        console.log('Market account not found');
+        return null;
       }
-    } catch (error) {
-      console.error('Error fetching pool info:', error);
-    }
 
-    // Return default values if error
-    return {
-      homeReserve: 1000,
-      awayReserve: 1000,
-      homeProb: '50.0%',
-      awayProb: '50.0%',
-    };
+      // Parse the market data based on MarketV2 structure
+      const data = accountInfo.data;
+      let offset = 8; // Skip discriminator
+      
+      // Read authority (32 bytes)
+      offset += 32;
+      
+      // Read game_id string
+      const gameIdLen = data.readUInt32LE(offset);
+      offset += 4;
+      const gameId = data.slice(offset, offset + gameIdLen).toString('utf-8');
+      offset += gameIdLen;
+      
+      // Read team_a string
+      const teamALen = data.readUInt32LE(offset);
+      offset += 4;
+      const teamA = data.slice(offset, offset + teamALen).toString('utf-8');
+      offset += teamALen;
+      
+      // Read team_b string
+      const teamBLen = data.readUInt32LE(offset);
+      offset += 4;
+      const teamB = data.slice(offset, offset + teamBLen).toString('utf-8');
+      offset += teamBLen;
+      
+      // Read mints and vault (32 bytes each)
+      const teamAMint = new PublicKey(data.slice(offset, offset + 32));
+      offset += 32;
+      const teamBMint = new PublicKey(data.slice(offset, offset + 32));
+      offset += 32;
+      const usdcVault = new PublicKey(data.slice(offset, offset + 32));
+      offset += 32;
+      
+      // Read bonding curve parameters
+      const basePrice = Number(data.readBigUInt64LE(offset));
+      offset += 8;
+      const slope = Number(data.readBigUInt64LE(offset));
+      offset += 8;
+      
+      // Read supplies and pool value
+      const teamASupply = Number(data.readBigUInt64LE(offset)) / 1_000_000;
+      offset += 8;
+      const teamBSupply = Number(data.readBigUInt64LE(offset)) / 1_000_000;
+      offset += 8;
+      const poolValue = Number(data.readBigUInt64LE(offset)) / 1_000_000;
+      
+      return {
+        marketPda,
+        gameId,
+        teamA,
+        teamB,
+        teamAMint: teamAMint.toString(),
+        teamBMint: teamBMint.toString(),
+        usdcVault: usdcVault.toString(),
+        basePrice,
+        slope,
+        teamASupply,
+        teamBSupply,
+        poolValue,
+      };
+    } catch (error) {
+      console.error('Error fetching market data:', error);
+      return null;
+    }
   }
 
-  async fundUser(
-    marketPda: string,
-    walletPubkey: PublicKey,
-    homeAmount: number,
-    awayAmount: number,
-    signTransaction: (tx: Transaction) => Promise<Transaction>
-  ) {
-    const market = new PublicKey(marketPda);
-    const marketInfo = this.marketData[marketPda];
+  /**
+   * Calculate tokens out for a given USDC amount (linear bonding curve)
+   */
+  calculateTokensOut(usdcAmount: number, currentSupply: number, basePrice: number, slope: number): number {
+    // Linear bonding curve: price = basePrice + (slope * supply / 1_000_000)
+    const startPrice = basePrice + (slope * currentSupply / 1_000_000);
     
-    if (!marketInfo) {
-      throw new Error('Market not found');
-    }
+    if (startPrice === 0) return 0;
+    
+    // Simplified calculation for small purchases
+    // For production, implement proper integration
+    const tokens = (usdcAmount * 1_000_000) / startPrice;
+    return tokens;
+  }
 
-    const homeMint = new PublicKey(marketInfo.homeMint);
-    const awayMint = new PublicKey(marketInfo.awayMint);
+  /**
+   * Calculate USDC needed for a given amount of tokens
+   */
+  calculateUsdcIn(tokenAmount: number, currentSupply: number, basePrice: number, slope: number): number {
+    const startPrice = basePrice + (slope * currentSupply / 1_000_000);
+    const endPrice = basePrice + (slope * (currentSupply + tokenAmount) / 1_000_000);
+    const avgPrice = (startPrice + endPrice) / 2;
+    
+    return (tokenAmount * avgPrice) / 1_000_000;
+  }
 
-    // Get ATAs
-    const userHomeAccount = await getAssociatedTokenAddress(
-      homeMint,
+  /**
+   * Buy tokens on the bonding curve
+   */
+  async buyOnCurve(
+    marketPda: string,
+    team: 'A' | 'B',
+    usdcAmount: number,
+    walletPubkey: PublicKey,
+    signTransaction: (tx: Transaction) => Promise<Transaction>
+  ): Promise<string> {
+    const market = await this.getMarketData(marketPda);
+    if (!market) throw new Error('Market not found');
+
+    const marketKey = new PublicKey(marketPda);
+    const teamAMint = new PublicKey(market.teamAMint);
+    const teamBMint = new PublicKey(market.teamBMint);
+    const usdcVault = new PublicKey(market.usdcVault);
+
+    // Get user's USDC account
+    const buyerUsdcAccount = await getAssociatedTokenAddress(
+      this.usdcMint,
       walletPubkey,
       false,
       TOKEN_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
-    const userAwayAccount = await getAssociatedTokenAddress(
-      awayMint,
+    // Get user's team token accounts
+    const buyerTeamAAccount = await getAssociatedTokenAddress(
+      teamAMint,
+      walletPubkey,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+
+    const buyerTeamBAccount = await getAssociatedTokenAddress(
+      teamBMint,
       walletPubkey,
       false,
       TOKEN_PROGRAM_ID,
@@ -115,56 +198,61 @@ export class SportsXchangeClient {
 
     const tx = new Transaction();
 
-    // Check if ATAs exist and create if needed
-    const homeAccountInfo = await this.connection.getAccountInfo(userHomeAccount);
-    const awayAccountInfo = await this.connection.getAccountInfo(userAwayAccount);
+    // Ensure token accounts exist
+    const teamAAccountInfo = await this.connection.getAccountInfo(buyerTeamAAccount);
+    const teamBAccountInfo = await this.connection.getAccountInfo(buyerTeamBAccount);
 
-    if (!homeAccountInfo) {
+    if (!teamAAccountInfo) {
       tx.add(
         createAssociatedTokenAccountInstruction(
           walletPubkey,
-          userHomeAccount,
+          buyerTeamAAccount,
           walletPubkey,
-          homeMint,
+          teamAMint,
           TOKEN_PROGRAM_ID,
           ASSOCIATED_TOKEN_PROGRAM_ID
         )
       );
     }
 
-    if (!awayAccountInfo) {
+    if (!teamBAccountInfo) {
       tx.add(
         createAssociatedTokenAccountInstruction(
           walletPubkey,
-          userAwayAccount,
+          buyerTeamBAccount,
           walletPubkey,
-          awayMint,
+          teamBMint,
           TOKEN_PROGRAM_ID,
           ASSOCIATED_TOKEN_PROGRAM_ID
         )
       );
     }
 
-    // Add fund instruction
-    const fundUserIx = {
+    // Buy instruction
+    const buyIx = {
       programId: this.programId,
       keys: [
-        { pubkey: market, isSigner: false, isWritable: false },
-        { pubkey: homeMint, isSigner: false, isWritable: true },
-        { pubkey: awayMint, isSigner: false, isWritable: true },
-        { pubkey: userHomeAccount, isSigner: false, isWritable: true },
-        { pubkey: userAwayAccount, isSigner: false, isWritable: true },
-        { pubkey: walletPubkey, isSigner: false, isWritable: false },
+        { pubkey: walletPubkey, isSigner: true, isWritable: true },
+        { pubkey: marketKey, isSigner: false, isWritable: true },
+        { pubkey: teamAMint, isSigner: false, isWritable: true },
+        { pubkey: teamBMint, isSigner: false, isWritable: true },
+        { pubkey: buyerTeamAAccount, isSigner: false, isWritable: true },
+        { pubkey: buyerTeamBAccount, isSigner: false, isWritable: true },
+        { pubkey: buyerUsdcAccount, isSigner: false, isWritable: true },
+        { pubkey: usdcVault, isSigner: false, isWritable: true },
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       data: Buffer.concat([
-        Buffer.from([36, 127, 154, 74, 24, 176, 49, 159]), // discriminator
-        this.encodeU64(homeAmount * 1_000_000),
-        this.encodeU64(awayAmount * 1_000_000),
-      ]),
+        Buffer.from([6, 20, 84, 191, 116, 79, 21, 147]), // buy_on_curve discriminator
+        Buffer.from([team === 'A' ? 0 : 1]), // team: 0 for A, 1 for B
+        this.encodeU64(usdcAmount * 1_000_000), // USDC amount with decimals
+        this.encodeU64(0), // min_tokens_out (0 for no slippage protection)
+      ])
     };
 
-    tx.add(fundUserIx);
+    tx.add(buyIx);
 
     // Get recent blockhash
     const { blockhash } = await this.connection.getLatestBlockhash();
@@ -179,60 +267,66 @@ export class SportsXchangeClient {
     return signature;
   }
 
-  async swap(
+  /**
+   * Sell tokens on the bonding curve
+   */
+  async sellOnCurve(
     marketPda: string,
-    direction: 'home_for_away' | 'away_for_home',
-    amount: number,
+    team: 'A' | 'B',
+    tokenAmount: number,
     walletPubkey: PublicKey,
     signTransaction: (tx: Transaction) => Promise<Transaction>
-  ) {
-    const market = new PublicKey(marketPda);
-    const [poolPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('pool'), market.toBuffer()],
-      this.programId
+  ): Promise<string> {
+    const market = await this.getMarketData(marketPda);
+    if (!market) throw new Error('Market not found');
+
+    const marketKey = new PublicKey(marketPda);
+    const teamAMint = new PublicKey(market.teamAMint);
+    const teamBMint = new PublicKey(market.teamBMint);
+    const usdcVault = new PublicKey(market.usdcVault);
+
+    // Get user accounts
+    const sellerUsdcAccount = await getAssociatedTokenAddress(
+      this.usdcMint,
+      walletPubkey
     );
 
-    const marketInfo = this.marketData[marketPda];
-    if (!marketInfo) {
-      throw new Error('Market not found');
-    }
+    const sellerTeamAAccount = await getAssociatedTokenAddress(
+      teamAMint,
+      walletPubkey
+    );
 
-    const homeMint = new PublicKey(marketInfo.homeMint);
-    const awayMint = new PublicKey(marketInfo.awayMint);
-
-    // Get vaults and user accounts
-    const homeVault = await getAssociatedTokenAddress(homeMint, poolPda, true);
-    const awayVault = await getAssociatedTokenAddress(awayMint, poolPda, true);
-    const userHomeAccount = await getAssociatedTokenAddress(homeMint, walletPubkey);
-    const userAwayAccount = await getAssociatedTokenAddress(awayMint, walletPubkey);
+    const sellerTeamBAccount = await getAssociatedTokenAddress(
+      teamBMint,
+      walletPubkey
+    );
 
     const tx = new Transaction();
 
-    // Swap instruction
-    const discriminator = direction === 'home_for_away'
-      ? [45, 234, 115, 23, 131, 90, 171, 63]
-      : [11, 102, 94, 105, 113, 231, 32, 21];
-
-    const swapIx = {
+    // Sell instruction
+    const sellIx = {
       programId: this.programId,
       keys: [
-        { pubkey: market, isSigner: false, isWritable: false },
-        { pubkey: poolPda, isSigner: false, isWritable: true },
-        { pubkey: homeVault, isSigner: false, isWritable: true },
-        { pubkey: awayVault, isSigner: false, isWritable: true },
-        { pubkey: userHomeAccount, isSigner: false, isWritable: true },
-        { pubkey: userAwayAccount, isSigner: false, isWritable: true },
-        { pubkey: walletPubkey, isSigner: true, isWritable: false },
+        { pubkey: walletPubkey, isSigner: true, isWritable: true },
+        { pubkey: marketKey, isSigner: false, isWritable: true },
+        { pubkey: teamAMint, isSigner: false, isWritable: true },
+        { pubkey: teamBMint, isSigner: false, isWritable: true },
+        { pubkey: sellerTeamAAccount, isSigner: false, isWritable: true },
+        { pubkey: sellerTeamBAccount, isSigner: false, isWritable: true },
+        { pubkey: sellerUsdcAccount, isSigner: false, isWritable: true },
+        { pubkey: usdcVault, isSigner: false, isWritable: true },
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       data: Buffer.concat([
-        Buffer.from(discriminator),
-        this.encodeU64(amount * 1_000_000),
-        this.encodeU64(Math.floor(amount * 0.99 * 1_000_000)), // 1% slippage
-      ]),
+        Buffer.from([158, 242, 158, 47, 48, 215, 214, 209]), // sell_on_curve discriminator
+        Buffer.from([team === 'A' ? 0 : 1]), // team
+        this.encodeU64(tokenAmount * 1_000_000), // token amount with decimals
+        this.encodeU64(0), // min_usdc_out (0 for no slippage protection)
+      ])
     };
 
-    tx.add(swapIx);
+    tx.add(sellIx);
 
     const { blockhash } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
@@ -243,6 +337,95 @@ export class SportsXchangeClient {
     await this.connection.confirmTransaction(signature, 'confirmed');
 
     return signature;
+  }
+
+  /**
+   * Get user's token balances for a market
+   */
+  async getUserBalances(
+    marketPda: string,
+    walletPubkey: PublicKey
+  ): Promise<{ teamA: number; teamB: number; usdc: number }> {
+    const market = await this.getMarketData(marketPda);
+    if (!market) {
+      return { teamA: 0, teamB: 0, usdc: 0 };
+    }
+
+    try {
+      const teamAMint = new PublicKey(market.teamAMint);
+      const teamBMint = new PublicKey(market.teamBMint);
+
+      // Get ATAs
+      const teamAAccount = await getAssociatedTokenAddress(teamAMint, walletPubkey);
+      const teamBAccount = await getAssociatedTokenAddress(teamBMint, walletPubkey);
+      const usdcAccount = await getAssociatedTokenAddress(this.usdcMint, walletPubkey);
+
+      // Fetch balances
+      let teamABalance = 0;
+      let teamBBalance = 0;
+      let usdcBalance = 0;
+
+      try {
+        const teamAInfo = await getAccount(this.connection, teamAAccount);
+        teamABalance = Number(teamAInfo.amount) / 1_000_000;
+      } catch {}
+
+      try {
+        const teamBInfo = await getAccount(this.connection, teamBAccount);
+        teamBBalance = Number(teamBInfo.amount) / 1_000_000;
+      } catch {}
+
+      try {
+        const usdcInfo = await getAccount(this.connection, usdcAccount);
+        usdcBalance = Number(usdcInfo.amount) / 1_000_000;
+      } catch {}
+
+      return { teamA: teamABalance, teamB: teamBBalance, usdc: usdcBalance };
+    } catch (error) {
+      console.error('Error fetching balances:', error);
+      return { teamA: 0, teamB: 0, usdc: 0 };
+    }
+  }
+
+  /**
+   * Get all markets (would need an indexer in production)
+   */
+  async getAllMarkets(): Promise<BondingCurveMarket[]> {
+    // In production, you'd use an indexer or store market list on-chain
+    // For now, we'll use known markets from test data
+    const knownMarkets = [
+      '2QYdDgN5u4VnAV7bQXtptBHBZpGwNkkfh1bJYuQP4toH', // Latest test market
+      // Add more as created
+    ];
+
+    const markets: BondingCurveMarket[] = [];
+    
+    for (const marketPda of knownMarkets) {
+      const market = await this.getMarketData(marketPda);
+      if (market) {
+        markets.push(market);
+      }
+    }
+
+    return markets;
+  }
+
+  /**
+   * Calculate market probabilities based on supply
+   */
+  calculateProbabilities(market: BondingCurveMarket): { teamAProb: number; teamBProb: number } {
+    // In a bonding curve, we can use the pool value distribution
+    // or token supplies to estimate probabilities
+    
+    if (market.teamASupply === 0 && market.teamBSupply === 0) {
+      return { teamAProb: 50, teamBProb: 50 };
+    }
+
+    const totalSupply = market.teamASupply + market.teamBSupply;
+    const teamAProb = (market.teamASupply / totalSupply) * 100;
+    const teamBProb = (market.teamBSupply / totalSupply) * 100;
+
+    return { teamAProb, teamBProb };
   }
 
   private encodeU64(num: number): Buffer {

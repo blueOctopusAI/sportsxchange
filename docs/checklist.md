@@ -30,13 +30,14 @@
 - [x] Test bonding curve purchases
 
 ## Phase 4: Frontend Development 🎨
-- [ ] Set up Next.js project
-- [ ] Create wallet connection (Phantom, Solflare)
-- [ ] Build market listing page
-- [ ] Design trading interface
-- [ ] Add portfolio view
-- [ ] Implement real-time price charts
-- [ ] Create admin dashboard
+- [x] Set up React Native/Expo project
+- [x] Create wallet connection interface
+- [x] Build market listing page
+- [x] Design trading interface with buy/sell modals
+- [x] Add portfolio view
+- [x] Implement price charts visualization
+- [ ] Connect to real Solana network
+- [ ] Test with actual smart contracts
 
 ## Phase 5: Testing & Optimization 🧪
 - [x] Unit tests for smart contracts
