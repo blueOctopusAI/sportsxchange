@@ -12,6 +12,7 @@
     "trading": "node src/trading-interface.js",
     "cli": "node src/trading-cli.js",
     "test-trading": "node test-trading.js",
+    "test-bonding": "node test-bonding.js",
     "dev": "node --watch src/orchestrator.js"
   },
   "dependencies": {
