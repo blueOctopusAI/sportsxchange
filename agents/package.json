@@ -16,7 +16,12 @@
     "dev": "node --watch src/orchestrator.js",
     "bots": "node run-mini-bots.js",
     "bots:mini": "node run-mini-bots.js",
-    "test:bots": "node tests/bot-ecosystem.test.js"
+    "test:bots": "node tests/bot-ecosystem.test.js",
+    "phase3": "node phase3-orchestrator.js",
+    "phase3:full": "node phase3-orchestrator.js --markets 10 --bots 50",
+    "create-market": "node create-usdc-market.js",
+    "test-buy": "node test-buy-usdc.js",
+    "test-sell": "node test-small-sell.js"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
