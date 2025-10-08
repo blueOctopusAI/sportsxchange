@@ -125,10 +125,94 @@ pub mod sportsxchange {
         Ok(())
     }
 
-    // Other functions remain similar...
+    // Sell tokens back to the bonding curve
+    pub fn sell_on_curve(
+        ctx: Context<SellOnCurve>,
+        team: u8,
+        token_amount: u64,
+        min_usdc_out: u64,
+    ) -> Result<()> {
+        let market = &mut ctx.accounts.market;
+        
+        require!(!market.trading_halted, ErrorCode::TradingHalted);
+        require!(team <= 1, ErrorCode::InvalidTeam);
+        
+        let current_supply = if team == 0 { 
+            market.team_a_supply 
+        } else { 
+            market.team_b_supply 
+        };
+        
+        require!(token_amount <= current_supply, ErrorCode::InsufficientSupply);
+        
+        // Calculate USDC to return using linear bonding curve
+        let usdc_out = calculate_usdc_linear(
+            token_amount,
+            current_supply,
+            market.base_price,
+            market.slope,
+        )?;
+        
+        require!(usdc_out >= min_usdc_out, ErrorCode::SlippageExceeded);
+        require!(usdc_out <= market.pool_value, ErrorCode::InsufficientPoolBalance);
+        
+        // Burn tokens from seller
+        let mint = if team == 0 {
+            &ctx.accounts.team_a_mint
+        } else {
+            &ctx.accounts.team_b_mint
+        };
+        
+        let token_account = if team == 0 {
+            &ctx.accounts.seller_team_a_account
+        } else {
+            &ctx.accounts.seller_team_b_account
+        };
+        
+        let cpi_ctx = CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            Burn {
+                mint: mint.to_account_info(),
+                from: token_account.to_account_info(),
+                authority: ctx.accounts.seller.to_account_info(),
+            },
+        );
+        token::burn(cpi_ctx, token_amount)?;
+        
+        // Transfer USDC back to seller
+        let seeds = &[
+            b"market",
+            market.game_id.as_bytes(),
+            &[ctx.bumps.market],
+        ];
+        let signer = &[&seeds[..]];
+        
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.usdc_vault.to_account_info(),
+                to: ctx.accounts.seller_usdc.to_account_info(),
+                authority: market.to_account_info(),
+            },
+            signer,
+        );
+        token::transfer(cpi_ctx, usdc_out)?;
+        
+        // Update state
+        if team == 0 {
+            market.team_a_supply -= token_amount;
+        } else {
+            market.team_b_supply -= token_amount;
+        }
+        market.pool_value -= usdc_out;
+        
+        msg!("Sold {} tokens for {} USDC", token_amount, usdc_out);
+        
+        Ok(())
+    }
 }
 
-// Simple linear bonding curve calculation
+// Simple linear bonding curve calculation for buying
 fn calculate_tokens_linear(
     usdc_amount: u64,
     current_supply: u64,
@@ -161,6 +245,50 @@ fn calculate_tokens_linear(
         .ok_or(ErrorCode::MathOverflow)? as u64;
     
     Ok(tokens_out)
+}
+
+// Calculate USDC returned when selling tokens
+fn calculate_usdc_linear(
+    token_amount: u64,
+    current_supply: u64,
+    base_price: u64,
+    slope: u64,
+) -> Result<u64> {
+    // Calculate average price over the sell range
+    // End supply after selling
+    let end_supply = current_supply
+        .checked_sub(token_amount)
+        .ok_or(ErrorCode::InsufficientSupply)?;
+    
+    // Average price = (start_price + end_price) / 2
+    let start_price = base_price
+        .checked_add(
+            slope.checked_mul(current_supply / 1_000_000)
+                .ok_or(ErrorCode::MathOverflow)?
+        )
+        .ok_or(ErrorCode::MathOverflow)?;
+    
+    let end_price = base_price
+        .checked_add(
+            slope.checked_mul(end_supply / 1_000_000)
+                .ok_or(ErrorCode::MathOverflow)?
+        )
+        .ok_or(ErrorCode::MathOverflow)?;
+    
+    let avg_price = (start_price + end_price) / 2;
+    
+    if avg_price == 0 {
+        return Ok(0);
+    }
+    
+    // Calculate USDC out
+    let usdc_out = (token_amount as u128)
+        .checked_mul(avg_price as u128)
+        .ok_or(ErrorCode::MathOverflow)?
+        .checked_div(1_000_000) // Scale down for decimals
+        .ok_or(ErrorCode::MathOverflow)? as u64;
+    
+    Ok(usdc_out)
 }
 
 // Account structures
@@ -258,6 +386,48 @@ pub struct BuyOnCurve<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct SellOnCurve<'info> {
+    #[account(mut)]
+    pub seller: Signer<'info>,
+    
+    #[account(
+        mut,
+        seeds = [b"market", market.game_id.as_bytes()],
+        bump
+    )]
+    pub market: Account<'info, MarketV2>,
+    
+    #[account(mut)]
+    pub team_a_mint: Account<'info, Mint>,
+    
+    #[account(mut)]
+    pub team_b_mint: Account<'info, Mint>,
+    
+    #[account(
+        mut,
+        associated_token::mint = team_a_mint,
+        associated_token::authority = seller
+    )]
+    pub seller_team_a_account: Account<'info, TokenAccount>,
+    
+    #[account(
+        mut,
+        associated_token::mint = team_b_mint,
+        associated_token::authority = seller
+    )]
+    pub seller_team_b_account: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub seller_usdc: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub usdc_vault: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
 // State
 #[account]
 pub struct MarketV2 {
@@ -293,4 +463,8 @@ pub enum ErrorCode {
     SlippageExceeded,
     #[msg("Math overflow")]
     MathOverflow,
+    #[msg("Insufficient supply")]
+    InsufficientSupply,
+    #[msg("Insufficient pool balance")]
+    InsufficientPoolBalance,
 }
