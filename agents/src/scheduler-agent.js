@@ -96,12 +96,16 @@ class SchedulerAgent {
           game.poolPda = poolResult.poolPda;
           game.status = 'market_created';
 
-          // Update state
+          // Update state with ALL important addresses
           this.state.processedGames.push(game.gameId);
           this.state.activeMarkets.push({
             gameId: game.gameId,
             marketPda: marketResult.marketPda,
             poolPda: poolResult.poolPda,
+            homeMint: marketResult.homeMint,  // CRITICAL: Save mint address
+            awayMint: marketResult.awayMint,  // CRITICAL: Save mint address
+            homeVault: poolResult.homeVault,  // Also save vault addresses
+            awayVault: poolResult.awayVault,  // Also save vault addresses
             createdAt: new Date().toISOString()
           });
           this.state.stats.totalMarketsCreated++;
