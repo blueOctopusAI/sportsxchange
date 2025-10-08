@@ -13,7 +13,10 @@
     "cli": "node src/trading-cli.js",
     "test-trading": "node test-trading.js",
     "test-bonding": "node test-bonding.js",
-    "dev": "node --watch src/orchestrator.js"
+    "dev": "node --watch src/orchestrator.js",
+    "bots": "node run-mini-bots.js",
+    "bots:mini": "node run-mini-bots.js",
+    "test:bots": "node tests/bot-ecosystem.test.js"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",

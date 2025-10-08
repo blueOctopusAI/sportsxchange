@@ -62,7 +62,10 @@ async function buyWithUSDC() {
   const buyerTeamAAccount = getAssociatedTokenAddressSync(teamAMint, wallet.publicKey);
   const buyerTeamBAccount = getAssociatedTokenAddressSync(teamBMint, wallet.publicKey);
 
-  console.log('\n🎯 Buying Team A tokens for 10 USDC...');
+  // FIXED: Randomly select team instead of always Team A
+  const team = Math.random() < 0.5 ? 0 : 1;
+  const teamName = team === 0 ? 'A' : 'B';
+  console.log(`\n🎯 Buying Team ${teamName} tokens for 10 USDC...`);
 
   const tx = new Transaction();
 
@@ -116,7 +119,7 @@ async function buyWithUSDC() {
     ],
     data: Buffer.concat([
       Buffer.from([6, 20, 84, 191, 116, 79, 21, 147]), // buy_on_curve discriminator
-      Buffer.from([0]), // team: 0 for A
+      Buffer.from([team]), // team: 0 for A, 1 for B (now random!)
       encodeU64(10 * 1_000_000), // 10 USDC
       encodeU64(0), // min_tokens_out: 0 (no slippage protection)
     ])
@@ -135,17 +138,17 @@ async function buyWithUSDC() {
     console.log('\n✅ Purchase successful!');
     console.log('   Transaction:', sig);
 
-    // Check new balances
-    const teamAAccount = await getAccount(connection, buyerTeamAAccount);
-    const teamABalance = Number(teamAAccount.amount) / 1_000_000;
+    // Check new balances for the team that was bought
+    const teamAccount = await getAccount(connection, team === 0 ? buyerTeamAAccount : buyerTeamBAccount);
+    const teamBalance = Number(teamAccount.amount) / 1_000_000;
     
     const usdcAccount = await getAccount(connection, buyerUsdcAccount);
     const newUsdcBalance = Number(usdcAccount.amount) / 1_000_000;
 
     console.log('\n💼 New Balances:');
-    console.log('   Team A tokens:', teamABalance);
+    console.log(`   Team ${teamName} tokens:`, teamBalance);
     console.log('   USDC remaining:', newUsdcBalance);
-    console.log('   Tokens per USDC:', (teamABalance / 10).toFixed(2));
+    console.log('   Tokens per USDC:', (teamBalance / 10).toFixed(2));
 
     // Check vault balance
     const vaultAccount = await getAccount(connection, usdcVault);
