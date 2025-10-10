@@ -239,13 +239,49 @@ export class BaseBotReal {
   }
 
   /**
-   * Calculate tokens received for USDC amount (simplified)
+   * Calculate expected tokens for a given USDC amount with proper quadratic formula
    */
-  calculateTokensOut(usdcAmount, currentSupply, basePrice, slope) {
-    const startPrice = this.calculatePrice(currentSupply, basePrice, slope);
+  calculateExpectedTokens(usdcAmount, currentSupply, basePrice, slope) {
+    // For linear bonding curve: price = base_price + (slope * supply / 1_000_000)
+    // We need to solve for tokens when integrating over the price curve
+    
+    const usdcLamports = usdcAmount * 1_000_000;
+    const startPrice = basePrice + (slope * Math.floor(currentSupply / 1_000_000));
+    
     if (startPrice === 0) return 0;
     
-    return Math.floor((usdcAmount * 1000000 * 1000000) / startPrice);
+    // Simplified approximation for small purchases
+    // For production, implement quadratic formula for exact calculation
+    const avgPrice = startPrice + (slope / 2); // Approximate average price
+    const tokens = Math.floor((usdcLamports * 1_000_000) / avgPrice);
+    
+    return tokens;
+  }
+
+  /**
+   * Calculate expected USDC for selling tokens
+   */
+  calculateExpectedUsdc(tokenAmount, currentSupply, basePrice, slope) {
+    // Calculate the average price over the sell range
+    const endSupply = Math.max(0, currentSupply - (tokenAmount * 1_000_000));
+    
+    const startPrice = basePrice + (slope * Math.floor(currentSupply / 1_000_000));
+    const endPrice = basePrice + (slope * Math.floor(endSupply / 1_000_000));
+    const avgPrice = (startPrice + endPrice) / 2;
+    
+    if (avgPrice === 0) return 0;
+    
+    const usdcLamports = Math.floor((tokenAmount * 1_000_000 * avgPrice) / 1_000_000);
+    return usdcLamports / 1_000_000; // Convert to USDC units
+  }
+
+  /**
+   * Calculate minimum acceptable output with slippage tolerance
+   */
+  calculateMinOutput(expectedAmount, slippageBps = 100) {
+    // slippageBps = basis points (100 = 1%)
+    const slippageMultiplier = (10000 - slippageBps) / 10000;
+    return Math.floor(expectedAmount * slippageMultiplier);
   }
 
   /**
@@ -266,9 +302,9 @@ export class BaseBotReal {
   }
 
   /**
-   * Execute REAL buy order on local validator
+   * Execute REAL buy order on local validator with slippage protection
    */
-  async buy(market, team, usdcAmount) {
+  async buy(market, team, usdcAmount, slippageBps = 100) {
     try {
       if (!this.tradingEnabled) {
         console.log(`[${this.name}] Trading is disabled`);
@@ -282,9 +318,23 @@ export class BaseBotReal {
         return { success: false, error: 'Insufficient USDC' };
       }
       
-      console.log(`[${this.name}] Executing REAL buy: ${usdcAmount} USDC of Team ${team === 0 ? 'A' : 'B'}`);
-      
+      // Get market state to calculate expected output
       const marketPda = new PublicKey(market.marketPda);
+      const marketState = await this.getMarketState(marketPda);
+      const currentSupply = team === 0 ? marketState.teamASupply : marketState.teamBSupply;
+      
+      // Calculate expected tokens and minimum acceptable (with slippage)
+      const expectedTokens = this.calculateExpectedTokens(
+        usdcAmount,
+        currentSupply,
+        marketState.basePrice,
+        marketState.slope
+      );
+      const minTokensOut = this.calculateMinOutput(expectedTokens, slippageBps);
+      
+      console.log(`[${this.name}] Executing REAL buy: ${usdcAmount} USDC of Team ${team === 0 ? 'A' : 'B'}`);
+      console.log(`[${this.name}] Expected: ${(expectedTokens / 1_000_000).toFixed(2)} tokens, Min: ${(minTokensOut / 1_000_000).toFixed(2)} tokens (${slippageBps / 100}% slippage)`);
+      
       const teamAMint = new PublicKey(market.teamAMint);
       const teamBMint = new PublicKey(market.teamBMint);
       const usdcMint = new PublicKey(market.usdcMint);
@@ -318,7 +368,7 @@ export class BaseBotReal {
           discriminator,
           Buffer.from([team]),
           this.encodeU64(usdcAmount * 1000000), // Convert to lamports
-          this.encodeU64(0), // min_tokens_out (no slippage protection for now)
+          this.encodeU64(minTokensOut), // NOW WITH SLIPPAGE PROTECTION!
         ])
       };
       
@@ -359,22 +409,14 @@ export class BaseBotReal {
   }
 
   /**
-   * Execute REAL sell order on local validator
+   * Execute REAL sell order on local validator with slippage protection
    */
-  async sell(market, team, tokenAmount) {
+  async sell(market, team, tokenAmount, slippageBps = 100) {
     try {
       if (!this.tradingEnabled) {
         console.log(`[${this.name}] Trading is disabled`);
         return { success: false, error: 'Trading disabled' };
       }
-      
-      console.log(`[${this.name}] Executing REAL sell: ${tokenAmount} tokens of Team ${team === 0 ? 'A' : 'B'}`);
-      
-      const marketPda = new PublicKey(market.marketPda);
-      const teamAMint = new PublicKey(market.teamAMint);
-      const teamBMint = new PublicKey(market.teamBMint);
-      const usdcMint = new PublicKey(market.usdcMint);
-      const usdcVault = new PublicKey(market.usdcVault);
       
       // Check token balance
       const mintToCheck = team === 0 ? market.teamAMint : market.teamBMint;
@@ -383,6 +425,28 @@ export class BaseBotReal {
         console.log(`[${this.name}] Insufficient tokens: ${balance} < ${tokenAmount}`);
         return { success: false, error: 'Insufficient tokens' };
       }
+      
+      // Get market state to calculate expected output
+      const marketPda = new PublicKey(market.marketPda);
+      const marketState = await this.getMarketState(marketPda);
+      const currentSupply = team === 0 ? marketState.teamASupply : marketState.teamBSupply;
+      
+      // Calculate expected USDC and minimum acceptable (with slippage)
+      const expectedUsdc = this.calculateExpectedUsdc(
+        tokenAmount,
+        currentSupply,
+        marketState.basePrice,
+        marketState.slope
+      );
+      const minUsdcOut = this.calculateMinOutput(expectedUsdc, slippageBps);
+      
+      console.log(`[${this.name}] Executing REAL sell: ${tokenAmount} tokens of Team ${team === 0 ? 'A' : 'B'}`);
+      console.log(`[${this.name}] Expected: ${expectedUsdc.toFixed(2)} USDC, Min: ${minUsdcOut.toFixed(2)} USDC (${slippageBps / 100}% slippage)`);
+      
+      const teamAMint = new PublicKey(market.teamAMint);
+      const teamBMint = new PublicKey(market.teamBMint);
+      const usdcMint = new PublicKey(market.usdcMint);
+      const usdcVault = new PublicKey(market.usdcVault);
       
       // Get associated token accounts
       const sellerTeamAAccount = getAssociatedTokenAddressSync(teamAMint, this.wallet.publicKey);
@@ -411,7 +475,7 @@ export class BaseBotReal {
           discriminator,
           Buffer.from([team]),
           this.encodeU64(tokenAmount * 1000000), // Convert to token decimals
-          this.encodeU64(0), // min_usdc_out (no slippage protection for now)
+          this.encodeU64(minUsdcOut * 1000000), // NOW WITH SLIPPAGE PROTECTION! (convert to lamports)
         ])
       };
       

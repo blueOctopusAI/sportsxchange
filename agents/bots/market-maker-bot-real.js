@@ -20,6 +20,7 @@ export class MarketMakerBot extends BaseBotReal {
             minTradeSize: config.minTradeSize || 5,  // Min 5 USDC per trade
             maxTradeSize: config.maxTradeSize || 20,  // Max 20 USDC per trade
             rebalanceThreshold: config.rebalanceThreshold || 0.7,  // Rebalance when 70% exposed on one side
+            slippageBps: config.slippageBps || 50,  // 0.5% slippage tolerance (tighter for market makers)
         };
     }
 
@@ -66,7 +67,7 @@ export class MarketMakerBot extends BaseBotReal {
                 const buyAmount = Math.min(tradeSize, this.config.maxPositionUSDC - positionValueA);
                 if (buyAmount >= this.config.minTradeSize) {
                     console.log(`[${this.name}] Providing liquidity: buying ${buyAmount.toFixed(2)} USDC of Team A at ${priceA.toFixed(4)} USDC`);
-                    const result = await this.buy(market, 0, buyAmount);
+                    const result = await this.buy(market, 0, buyAmount, this.config.slippageBps);
                     if (result.success) {
                         console.log(`[${this.name}] ✅ Buy executed: ${result.signature.slice(0, 8)}...`);
                     }
@@ -78,7 +79,7 @@ export class MarketMakerBot extends BaseBotReal {
                 const buyAmount = Math.min(tradeSize, this.config.maxPositionUSDC - positionValueB);
                 if (buyAmount >= this.config.minTradeSize) {
                     console.log(`[${this.name}] Providing liquidity: buying ${buyAmount.toFixed(2)} USDC of Team B at ${priceB.toFixed(4)} USDC`);
-                    const result = await this.buy(market, 1, buyAmount);
+                    const result = await this.buy(market, 1, buyAmount, this.config.slippageBps);
                     if (result.success) {
                         console.log(`[${this.name}] ✅ Buy executed: ${result.signature.slice(0, 8)}...`);
                     }
@@ -90,7 +91,7 @@ export class MarketMakerBot extends BaseBotReal {
                 // Sell some Team A tokens
                 const sellAmount = Math.floor(positionA * 0.2);  // Sell 20% of position
                 console.log(`[${this.name}] Rebalancing - selling ${sellAmount} Team A tokens`);
-                const result = await this.sell(market, 0, sellAmount);
+                const result = await this.sell(market, 0, sellAmount, this.config.slippageBps);
                 if (result.success) {
                     console.log(`[${this.name}] ✅ Rebalance sell executed: ${result.signature.slice(0, 8)}...`);
                 }
@@ -100,7 +101,7 @@ export class MarketMakerBot extends BaseBotReal {
                 // Sell some Team B tokens
                 const sellAmount = Math.floor(positionB * 0.2);  // Sell 20% of position
                 console.log(`[${this.name}] Rebalancing - selling ${sellAmount} Team B tokens`);
-                const result = await this.sell(market, 1, sellAmount);
+                const result = await this.sell(market, 1, sellAmount, this.config.slippageBps);
                 if (result.success) {
                     console.log(`[${this.name}] ✅ Rebalance sell executed: ${result.signature.slice(0, 8)}...`);
                 }
