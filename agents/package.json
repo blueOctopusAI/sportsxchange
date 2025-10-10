@@ -19,6 +19,11 @@
     "test:bots": "node tests/bot-ecosystem.test.js",
     "phase3": "node phase3-orchestrator.js",
     "phase3:full": "node phase3-orchestrator.js --markets 10 --bots 50",
+    "phase3:real": "node phase3-orchestrator-real.js",
+    "phase3:real:full": "node phase3-orchestrator-real.js --full",
+    "fund-bots": "node fund-bots.js",
+    "test-real-bot": "node test-real-bot-trading.js",
+    "mint-usdc": "node quick-mint-usdc.js",
     "create-market": "node create-usdc-market.js",
     "test-buy": "node test-buy-usdc.js",
     "test-sell": "node test-small-sell.js"
