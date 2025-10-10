@@ -23,6 +23,7 @@
     "phase3:real:full": "node phase3-orchestrator-real.js --full",
     "fund-bots": "node fund-bots.js",
     "test-real-bot": "node test-real-bot-trading.js",
+    "test-mm-fix": "node test-mm-fix.js",
     "mint-usdc": "node quick-mint-usdc.js",
     "create-market": "node create-usdc-market.js",
     "test-buy": "node test-buy-usdc.js",
